@@ -77,6 +77,13 @@ def get_current_step(abf):
     )
 
 
+def get_voltage_step(abf):
+    stimulus = abf.sweepC
+    step_indexes = np.where(stimulus != abf.holdingCommand[0])[0]
+
+    return stimulus[step_indexes[0]] if len(step_indexes) else abf.holdingCommand[0]
+
+
 # Unlike abf.sweepDerivative, this function
 # (1) doesn't shift the sample indexes relative to abf.sweepY, and
 # (2) converts the calculated values to dy/ms rather than dy/s.
@@ -146,92 +153,130 @@ def extend_coords(start_index, start_offset, end_index, end_offset, abf):
 ### IV PLOTS ###
 
 
-def filter_signal(start_index, end_index, y_ms_threshold, abf):
-    filtered_signal = np.copy(abf.sweepY[start_index:end_index])
+class IVData:
+    def __init__(self, start_index, end_index, voltage_clamp, abf):
+        self.abf = abf
+        self.start_index = start_index
+        self.end_index = end_index
+        self.voltage_clamp = voltage_clamp
+        self.response_channel = 0 if voltage_clamp else 1
 
-    abs_context_derivative = np.abs(get_derivative(start_index, end_index, abf))
-    y_above_trh_indexes = np.where(abs_context_derivative >= y_ms_threshold)[0]
+    def _filter_signal(self, y_ms_threshold):
+        abf = self.abf
+        start_index = self.start_index
+        end_index = self.end_index
 
-    if len(y_above_trh_indexes):
-        # In case there's a spike crossing the left border of the analysis window.
-        if y_above_trh_indexes[0] == 0:
-            filtered_signal[0] = np.mean(filtered_signal)
-        # In case there's a spike crossing the right border of the analysis window.
-        if y_above_trh_indexes[-1] == len(abs_context_derivative) - 1:
-            y_above_trh_indexes = y_above_trh_indexes[:-1]
+        filtered_signal = np.copy(abf.sweepY[start_index:end_index])
 
-    prev_i = -FILTER_MIN_DISTANCE_FROM_LAST_SUPERTHRESHOLD_VALUE
+        abs_context_derivative = np.abs(get_derivative(start_index, end_index, abf))
+        y_above_trh_indexes = np.where(abs_context_derivative >= y_ms_threshold)[0]
 
-    for cur_i in y_above_trh_indexes:
-        filtered_signal[cur_i] = filtered_signal[cur_i - 1]
+        if len(y_above_trh_indexes):
+            # In case there's a spike crossing the left border of the analysis window.
+            if y_above_trh_indexes[0] == 0:
+                filtered_signal[0] = np.mean(filtered_signal)
+            # In case there's a spike crossing the right border of the analysis window.
+            if y_above_trh_indexes[-1] == len(abs_context_derivative) - 1:
+                y_above_trh_indexes = y_above_trh_indexes[:-1]
 
-        if cur_i - prev_i < FILTER_MIN_DISTANCE_FROM_LAST_SUPERTHRESHOLD_VALUE:
-            filtered_signal[prev_i + 1 : cur_i + 1] = filtered_signal[prev_i]
+        prev_i = -FILTER_MIN_DISTANCE_FROM_LAST_SUPERTHRESHOLD_VALUE
 
-        prev_i = cur_i
+        for cur_i in y_above_trh_indexes:
+            filtered_signal[cur_i] = filtered_signal[cur_i - 1]
 
-    return filtered_signal
+            if cur_i - prev_i < FILTER_MIN_DISTANCE_FROM_LAST_SUPERTHRESHOLD_VALUE:
+                filtered_signal[prev_i + 1 : cur_i + 1] = filtered_signal[prev_i]
 
+            prev_i = cur_i
 
-def get_iv_data(start_index, end_index, channel, filter_threshold, abf):
-    original_signal_per_sweep = []
-    original_mean_signal_per_sweep = []
+        return filtered_signal
 
-    filtered_signal_per_sweep = []
-    filtered_mean_signal_per_sweep = []
+    def get_stimulus(self):
+        abf = self.abf
 
-    for sweep_no in abf.sweepList:
-        abf.setSweep(sweep_no, channel)
-
-        original_signal_per_sweep.append(abf.sweepY[start_index:end_index])
-        original_mean_signal_per_sweep.append(np.mean(original_signal_per_sweep[-1]))
-
-        if filter_threshold is not None:
-            filtered_signal_per_sweep.append(
-                filter_signal(start_index, end_index, filter_threshold, abf)
-            )
-            filtered_mean_signal_per_sweep.append(
-                np.mean(filtered_signal_per_sweep[-1])
-            )
-
-    return {
-        "original": (original_signal_per_sweep, original_mean_signal_per_sweep),
-        "filtered": (filtered_signal_per_sweep, filtered_mean_signal_per_sweep),
-    }
-
-
-def plot_iv_data(x_data, y_data, start_index, end_index, channel, abf):
-    plt.figure(**FIGURE_INIT_PARAMS)
-
-    subplots = []
-
-    for response_type in y_data.keys():
-        subplots.append(plt.subplot(2, 2, len(subplots) + 1))
-        plt.title(IV_TRACE_TITLE % response_type.capitalize())
+        stimulus_sweeps = []
 
         for sweep_no in abf.sweepList:
-            abf.setSweep(sweep_no, channel)
+            abf.setSweep(sweep_no, channel=0)
+            stimulus_sweeps.append(
+                get_voltage_step(abf) if self.voltage_clamp else get_current_step(abf)
+            )
 
-            cur_y = abf.sweepY
+        self.stimulus = stimulus_sweeps
+        return stimulus_sweeps
 
-            if response_type == "filtered":
-                cur_y = np.copy(abf.sweepY)
-                cur_y[start_index:end_index] = y_data[response_type][0][sweep_no]
+    def get_response(self, filter_threshold):
+        abf = self.abf
 
-            plt.plot(*extend_coords(start_index, 0.02, end_index, 0.02, abf))
+        original_signal_per_sweep = []
+        original_mean_signal_per_sweep = []
 
-        plt.axvspan(
-            sample_to_s(start_index, abf),
-            sample_to_s(end_index, abf),
-            **IV_TRACE_ANALYZED_SPAN_STYLE,
-        )
+        filtered_signal_per_sweep = []
+        filtered_mean_signal_per_sweep = []
 
-        subplots.append(plt.subplot(2, 2, len(subplots) + 1))
-        plt.title(IV_CURVE_TITLE % response_type)
-        plt.scatter(x_data, y_data[response_type][1])
-        plt.plot(x_data, y_data[response_type][1])
+        for sweep_no in abf.sweepList:
+            abf.setSweep(sweep_no, self.response_channel)
 
-    return IVPlot(subplots, abf)
+            original_signal_per_sweep.append(
+                abf.sweepY[self.start_index : self.end_index]
+            )
+            original_mean_signal_per_sweep.append(
+                np.mean(original_signal_per_sweep[-1])
+            )
+
+            if filter_threshold is not None:
+                filtered_signal_per_sweep.append(self._filter_signal(filter_threshold))
+                filtered_mean_signal_per_sweep.append(
+                    np.mean(filtered_signal_per_sweep[-1])
+                )
+
+        self.response = {
+            "original": (original_signal_per_sweep, original_mean_signal_per_sweep),
+            "filtered": (filtered_signal_per_sweep, filtered_mean_signal_per_sweep),
+        }
+
+        return self.response
+
+    def plot(self):
+        abf = self.abf
+        x_data = self.stimulus
+        y_data = self.response
+        start_index = self.start_index
+        end_index = self.end_index
+
+        plt.figure(**FIGURE_INIT_PARAMS)
+
+        subplots = []
+
+        for response_type in y_data.keys():
+            subplots.append(plt.subplot(2, 2, len(subplots) + 1))
+            plt.title(IV_TRACE_TITLE % response_type.capitalize())
+
+            for sweep_no in abf.sweepList:
+                abf.setSweep(sweep_no, self.response_channel)
+
+                cur_y = abf.sweepY
+
+                if response_type == "filtered":
+                    cur_y = np.copy(abf.sweepY)
+                    cur_y[start_index:end_index] = y_data[response_type][0][sweep_no]
+
+                prepulse = get_prepulse(start_index, abf, 0.02)
+                postpulse = get_postpulse(end_index, abf, 0.02)
+                plt.plot(abf.sweepX[prepulse:postpulse], cur_y[prepulse:postpulse])
+
+            plt.axvspan(
+                sample_to_s(start_index, abf),
+                sample_to_s(end_index, abf),
+                **IV_TRACE_ANALYZED_SPAN_STYLE,
+            )
+
+            subplots.append(plt.subplot(2, 2, len(subplots) + 1))
+            plt.title(IV_CURVE_TITLE % response_type)
+            plt.scatter(x_data, y_data[response_type][1])
+            plt.plot(x_data, y_data[response_type][1])
+
+        return IVPlot(subplots, abf)
 
 
 class IVPlot:
