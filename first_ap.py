@@ -53,18 +53,12 @@ class FirstAP:
         self.step_start = step_start
         self.step_end = step_end
 
-    def _get_ahp(self, start_index, end_index):
+    def _get_ahp(self, start_index, end_index, second_ap_trh_i):
         if end_index >= self.step_end + 1:
             end_index = self.step_end
 
-        ahp_derivative = self.sweep_derivative[
-            # Account for the fact that the derivative at the AP peak might be superthreshold.
-            start_index if start_index != self.peak_i else start_index + 1 : end_index
-        ]
-
         # Check if there's an AP in the way.
-        # Less strict criteria are used to catch at least the beginning of an AP.
-        if any(fn.is_ap(i, ahp_derivative, 3) for i in range(len(ahp_derivative))):
+        if second_ap_trh_i and end_index > second_ap_trh_i:
             return None
 
         ahp_context = self.abf.sweepY[start_index:end_index]
@@ -113,42 +107,40 @@ class FirstAP:
         for sweep_no in abf.sweepList:
             abf.setSweep(sweep_no, channel=1)
 
+            peak_indexes, trh_indexes = fn.find_aps(self.step_start, self.step_end, abf)
+
             try:
-                peak_i = fn.find_ap_peaks(self.step_start, self.step_end, abf)[0]
+                peak_i = peak_indexes[0]
             except IndexError:
                 continue
+
+            try:
+                second_ap_trh_i = trh_indexes[1]
+            except IndexError:
+                second_ap_trh_i = None
 
             abf.setSweep(sweep_no, channel=0)
             self.props["rheobase"] = fn.get_current_step(abf)
 
             abf.setSweep(sweep_no, channel=1)
-
+            trh_i = trh_indexes[0]
             prepeak_i = peak_i - fn.s_to_sample(AP_TIME_WINDOW, abf)
             postpeak_i = peak_i + fn.s_to_sample(AP_TIME_WINDOW, abf)
-
             fahp_max_i = peak_i + fn.s_to_sample(FAHP_TIME_WINDOW, abf)
             mahp_max_i = peak_i + fn.s_to_sample(MAHP_TIME_WINDOW, abf)
 
-            sweep_derivative = fn.get_derivative(None, None, abf)
-
             # Burst check
-            while fn.is_ap(postpeak_i, sweep_derivative):
-                postpeak_i -= 1
+            if second_ap_trh_i and postpeak_i > second_ap_trh_i:
+                postpeak_i = second_ap_trh_i
 
             self.peak_i = peak_i
             self.prepeak_i = prepeak_i
             self.postpeak_i = postpeak_i
             self.ahp_max_i = mahp_max_i
-            self.sweep_derivative = sweep_derivative
-
-            # Threshold
-            ap_mv_ms_trh_i = next(
-                i for i in range(prepeak_i, peak_i) if fn.is_ap(i, sweep_derivative)
-            )
 
             self.props["latency"] = (
                 fn.sample_to_s(
-                    ap_mv_ms_trh_i - self.step_start,
+                    trh_i - self.step_start,
                     abf,
                 )
                 * 1000
@@ -156,16 +148,16 @@ class FirstAP:
                 else 0.0
             )
 
-            self.props["threshold"] = abf.sweepY[ap_mv_ms_trh_i]
+            self.props["threshold"] = abf.sweepY[trh_i]
 
             # fAHP
-            fahp_params = self._get_ahp(peak_i, fahp_max_i)
+            fahp_params = self._get_ahp(peak_i, fahp_max_i, second_ap_trh_i)
 
             if fahp_params:
                 self.props["fAHP"] = fahp_params[1] - self.props["threshold"]
 
             # mAHP
-            mahp_params = self._get_ahp(fahp_max_i, mahp_max_i)
+            mahp_params = self._get_ahp(fahp_max_i, mahp_max_i, second_ap_trh_i)
 
             if mahp_params:
                 self.props["mAHP"] = mahp_params[1] - self.props["threshold"]
@@ -185,8 +177,9 @@ class FirstAP:
             ) * 1000
 
             # Max rise and decay slopes
-            self.props["max_rise_slope"] = sweep_derivative[prepeak_i:peak_i].max()
-            self.props["max_decay_slope"] = sweep_derivative[peak_i:postpeak_i].min()
+            ap_derivative = fn.get_derivative(trh_i, postpeak_i, abf)
+            self.props["max_rise_slope"] = ap_derivative.max()
+            self.props["max_decay_slope"] = ap_derivative.min()
 
             return self.props
 

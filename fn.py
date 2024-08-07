@@ -307,15 +307,7 @@ class IVPlot:
 ### ACTION POTENTIALS ###
 
 
-def is_ap(index, context_derivative, points_to_average=5):
-    return (
-        context_derivative[index] >= AP_MV_MS_RISE_THRESHOLD
-        and np.mean(np.abs(context_derivative[index : index + points_to_average]))
-        >= AP_MV_MS_RISE_THRESHOLD
-    )
-
-
-def find_ap_peaks(start_index, end_index, abf):
+def find_aps(start_index, end_index, abf):
     # Extend the analysis window slightly beyond the step to catch APs that might be on its edge.
     original_end_index = end_index
     end_index = get_postpulse(end_index, abf, AP_STEP_EXTENSION)
@@ -333,6 +325,7 @@ def find_ap_peaks(start_index, end_index, abf):
     )
 
     peak_indexes = []
+    trh_indexes = []
 
     for i, indexes in enumerate(events):
         # Consider an event a possible AP if its mV/ms values stay superthreshold long enough.
@@ -368,5 +361,6 @@ def find_ap_peaks(start_index, end_index, abf):
                 # Additionally check the peak voltage and amplitude.
                 if peak_mv >= AP_MV_THRESHOLD and amplitude >= AP_MIN_AMPLITUDE:
                     peak_indexes.append(peak_i + start_index)
+                    trh_indexes.append(cur_trh_i + start_index)
 
-    return peak_indexes
+    return peak_indexes, trh_indexes

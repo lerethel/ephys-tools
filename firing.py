@@ -86,7 +86,7 @@ class Firing:
 
             abf.setSweep(sweep_no, channel=1)
 
-            peak_indexes = fn.find_ap_peaks(self.step_start, self.step_end, abf)
+            peak_indexes = fn.find_aps(self.step_start, self.step_end, abf)[0]
             step_info = (sweep_no, current_step, peak_indexes)
             inst_freqs = None
 
