@@ -22,7 +22,7 @@ AP_MV_MS_THRESHOLD_LINE_STYLE = {
     "color": "grey",
     "alpha": 0.7,
     "ls": "--",
-    "label": f"AP threshold (> {fn.AP_MV_MS_THRESHOLD} mV/ms)",
+    "label": f"AP threshold (> {fn.AP_MV_MS_RISE_THRESHOLD} mV/ms)",
 }
 AP_HALF_WIDTH_LINE_STYLE = {
     "color": "blue",

@@ -5,8 +5,13 @@ import numpy as np
 FIGURE_INIT_PARAMS = {"figsize": (10, 6), "layout": "constrained"}
 DISTANCE_BETWEEN_MARKERS_AND_MAX_PEAK = 10
 
-AP_MV_THRESHOLD = -20
-AP_MV_MS_THRESHOLD = 10
+AP_MIN_AMPLITUDE = 5
+AP_MV_THRESHOLD = -25
+AP_MV_MS_RISE_THRESHOLD = 10
+AP_MV_MS_FALL_THRESHOLD = -5
+AP_MV_MS_RISE_MIN_REPEAT_DURATION = 0.0005
+AP_MV_MS_FALL_MIN_REPEAT_DURATION = 0.0005
+AP_STEP_EXTENSION = 0.005
 
 FILTER_MIN_DISTANCE_FROM_LAST_SUPERTHRESHOLD_VALUE = 5
 IV_TRACE_TITLE = "%s signal"
@@ -304,37 +309,64 @@ class IVPlot:
 
 def is_ap(index, context_derivative, points_to_average=5):
     return (
-        context_derivative[index] >= AP_MV_MS_THRESHOLD
+        context_derivative[index] >= AP_MV_MS_RISE_THRESHOLD
         and np.mean(np.abs(context_derivative[index : index + points_to_average]))
-        >= AP_MV_MS_THRESHOLD
+        >= AP_MV_MS_RISE_THRESHOLD
     )
 
 
 def find_ap_peaks(start_index, end_index, abf):
-    peak_indexes = []
+    # Extend the analysis window slightly beyond the step to catch APs that might be on its edge.
+    original_end_index = end_index
+    end_index = get_postpulse(end_index, abf, AP_STEP_EXTENSION)
 
     context_voltages = abf.sweepY[start_index:end_index]
     context_derivative = get_derivative(start_index, end_index, abf)
+    mv_ms_above_trh_indexes = np.where(context_derivative >= AP_MV_MS_RISE_THRESHOLD)[0]
+    mv_ms_rise_points_to_check = s_to_sample(AP_MV_MS_RISE_MIN_REPEAT_DURATION, abf)
+    mv_ms_fall_points_to_check = s_to_sample(AP_MV_MS_FALL_MIN_REPEAT_DURATION, abf)
 
-    search_indexes = np.where(
-        # Filter out subthreshold mV values and zero mV/ms values as useless.
-        (context_voltages >= AP_MV_THRESHOLD) & (context_derivative != 0)
-    )[0]
+    # Put consecutive indexes with values above the mV/ms threshold into separate lists.
+    # The first value in each list will be the threshold of a possible AP.
+    events = np.split(
+        mv_ms_above_trh_indexes, np.where(np.diff(mv_ms_above_trh_indexes) != 1)[0] + 1
+    )
 
-    prev_mv_ms = float("-inf")
-    rising_phase = False
+    peak_indexes = []
 
-    for i in search_indexes:
-        cur_mv_ms = context_derivative[i]
+    for i, indexes in enumerate(events):
+        # Consider an event a possible AP if its mV/ms values stay superthreshold long enough.
+        if len(indexes) >= mv_ms_rise_points_to_check:
+            cur_trh_i = indexes[0]
 
-        if not rising_phase and is_ap(i, context_derivative):
-            rising_phase = True
+            # Ignore APs that occurred outside the step.
+            if cur_trh_i + start_index >= original_end_index:
+                break
 
-        if rising_phase and cur_mv_ms < 0 and prev_mv_ms > 0:
-            peak_i = i - 1 + start_index
-            peak_indexes.append(peak_i)
-            rising_phase = False
+            try:
+                next_trh_i = events[i + 1][0]
+            except IndexError:
+                # This is to find the last peak since nothing goes after it.
+                next_trh_i = len(context_derivative) - 1
 
-        prev_mv_ms = cur_mv_ms
+            # Some APs seem to have a phase where the voltage rises steeply
+            # and then slowly and can even slighly fall before rising steeply again.
+            # This might happen when too much current is injected into a cell.
+            # Filter out such phases and accept only events with a fairly steep falling phase.
+            fall_trh_indexes = np.where(
+                context_derivative[cur_trh_i:next_trh_i] <= AP_MV_MS_FALL_THRESHOLD
+            )[0]
+
+            if len(fall_trh_indexes) >= mv_ms_fall_points_to_check:
+                fall_trh_i = fall_trh_indexes[0] + cur_trh_i
+
+                # The max value between the threshold and falling phase of an AP is the peak.
+                peak_i = context_voltages[cur_trh_i:fall_trh_i].argmax() + cur_trh_i
+                peak_mv = context_voltages[peak_i]
+                amplitude = peak_mv - context_voltages[cur_trh_i]
+
+                # Additionally check the peak voltage and amplitude.
+                if peak_mv >= AP_MV_THRESHOLD and amplitude >= AP_MIN_AMPLITUDE:
+                    peak_indexes.append(peak_i + start_index)
 
     return peak_indexes
