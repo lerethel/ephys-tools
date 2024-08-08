@@ -1,3 +1,5 @@
+import operator as op
+
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -6,7 +8,7 @@ import fn
 AP_TIME_WINDOW = 0.002
 FAHP_TIME_WINDOW = 0.005
 MAHP_TIME_WINDOW = 0.050
-HALF_WIDTH_POINTS_TO_INTERPOLATE = 100
+HALF_AMPLITUDE_POINTS_TO_INTERPOLATE = 100
 
 RHEOBASE_TITLE = "Rheobase: %d pA. Analyzed AP is marked"
 AP_UP_CLOSE_TITLE = "Analyzed AP up close"
@@ -24,11 +26,11 @@ AP_MV_MS_THRESHOLD_LINE_STYLE = {
     "ls": "--",
     "label": f"AP threshold (> {fn.AP_MV_MS_RISE_THRESHOLD} mV/ms)",
 }
-AP_HALF_WIDTH_LINE_STYLE = {
+AP_HALF_AMPLITUDE_LINE_STYLE = {
     "color": "blue",
     "alpha": 0.7,
     "ls": "--",
-    "label": "AP half-width",
+    "label": "AP half-amplitude",
 }
 AP_PEAK_LINE_STYLE = {
     "color": "orange",
@@ -36,7 +38,7 @@ AP_PEAK_LINE_STYLE = {
     "ls": "--",
     "label": "AP peak",
 }
-AP_HALF_WIDTH_MARKER_STYLE = {
+AP_HALF_AMPLITUDE_MARKER_STYLE = {
     "color": "blue",
     "alpha": 0.7,
     "marker": ".",
@@ -53,7 +55,7 @@ class FirstAP:
         self.step_start = step_start
         self.step_end = step_end
 
-    def _get_ahp(self, start_index, end_index, second_ap_trh_i):
+    def _get_ahp_info(self, start_index, end_index, second_ap_trh_i):
         if end_index >= self.step_end + 1:
             end_index = self.step_end
 
@@ -64,40 +66,42 @@ class FirstAP:
         ahp_context = self.abf.sweepY[start_index:end_index]
         ahp_index = ahp_context.argmin()
 
-        # fAHP is searched for from the AP peak, so the parenthesized statement will return 0.
-        # Other types of AHP aren't searched for from the AP peak, so we need to account for that.
-        return ahp_index + (start_index - self.peak_i), ahp_context[ahp_index]
+        return ahp_index + start_index, ahp_context[ahp_index]
 
-    def _get_half_width_params(self, ap_left_side):
-        real_ap_half_ampl = self.props["amplitude"] / 2 + self.props["threshold"]
+    def _interpolate_side(self, start_index, end_index, operation):
+        abf = self.abf
+        half_amplitude = self.props["amplitude"] / 2 + self.props["threshold"]
+        side_voltages = abf.sweepY[start_index:end_index]
 
-        ap_side_voltages = (
-            self.abf.sweepY[self.prepeak_i : self.peak_i]
-            if ap_left_side
-            else self.abf.sweepY[self.peak_i : self.postpeak_i]
+        # When operation is lt: Go up the left side of an AP and find the last value lower than
+        # the calculated half-amplitude. When operation is gt: Go down the right side of the AP
+        # and find the last value higher than the calculated half-amplitude.
+        closest_voltage_i = np.where(operation(side_voltages, half_amplitude))[0][-1]
+
+        interp_time = np.linspace(
+            fn.sample_to_s(closest_voltage_i, abf),
+            fn.sample_to_s(closest_voltage_i + 1, abf),
+            HALF_AMPLITUDE_POINTS_TO_INTERPOLATE,
         )
 
-        min_mv_index = (
-            np.where(ap_side_voltages < real_ap_half_ampl)
-            if ap_left_side
-            else np.where(ap_side_voltages > real_ap_half_ampl)
-        )[0][-1]
-
-        interp_s = np.linspace(
-            fn.sample_to_s(min_mv_index, self.abf),
-            fn.sample_to_s(min_mv_index + 1, self.abf),
-            HALF_WIDTH_POINTS_TO_INTERPOLATE,
+        interp_voltage = np.linspace(
+            side_voltages[closest_voltage_i],
+            side_voltages[closest_voltage_i + 1],
+            HALF_AMPLITUDE_POINTS_TO_INTERPOLATE,
         )
 
-        interp_mV = np.linspace(
-            ap_side_voltages[min_mv_index],
-            ap_side_voltages[min_mv_index + 1],
-            HALF_WIDTH_POINTS_TO_INTERPOLATE,
+        half_amplitude_info = fn.get_closest(interp_voltage, half_amplitude)
+
+        return (
+            interp_time[half_amplitude_info[0]] + fn.sample_to_s(start_index, abf),
+            half_amplitude_info[1],
         )
 
-        ap_half_width_info = fn.get_closest(interp_mV, real_ap_half_ampl)
+    def _get_half_amplitude_info(self):
+        left_side_info = self._interpolate_side(self.trh_i, self.peak_i, op.lt)
+        right_side_info = self._interpolate_side(self.peak_i, self.postpeak_i, op.gt)
 
-        return interp_s[ap_half_width_info[0]], ap_half_width_info[1]
+        return {"left": left_side_info, "right": right_side_info}
 
     def first_ap(self):
         abf = self.abf
@@ -119,67 +123,60 @@ class FirstAP:
             except IndexError:
                 second_ap_trh_i = None
 
-            abf.setSweep(sweep_no, channel=0)
-            self.props["rheobase"] = fn.get_current_step(abf)
-
-            abf.setSweep(sweep_no, channel=1)
             trh_i = trh_indexes[0]
             prepeak_i = peak_i - fn.s_to_sample(AP_TIME_WINDOW, abf)
             postpeak_i = peak_i + fn.s_to_sample(AP_TIME_WINDOW, abf)
             fahp_max_i = peak_i + fn.s_to_sample(FAHP_TIME_WINDOW, abf)
             mahp_max_i = peak_i + fn.s_to_sample(MAHP_TIME_WINDOW, abf)
 
-            # Burst check
+            # Make sure the window doesn't include any other APs in case of a burst.
             if second_ap_trh_i and postpeak_i > second_ap_trh_i:
                 postpeak_i = second_ap_trh_i
 
             self.peak_i = peak_i
+            self.trh_i = trh_i
             self.prepeak_i = prepeak_i
             self.postpeak_i = postpeak_i
             self.ahp_max_i = mahp_max_i
 
+            abf.setSweep(sweep_no, channel=0)
+            self.props["rheobase"] = fn.get_current_step(abf)
+            abf.setSweep(sweep_no, channel=1)
+
             self.props["latency"] = (
-                fn.sample_to_s(
-                    trh_i - self.step_start,
-                    abf,
-                )
-                * 1000
+                fn.sample_to_s(trh_i - self.step_start, abf) * 1000
                 if self.props["rheobase"] != 0
                 else 0.0
             )
 
             self.props["threshold"] = abf.sweepY[trh_i]
-
-            # fAHP
-            fahp_params = self._get_ahp(peak_i, fahp_max_i, second_ap_trh_i)
-
-            if fahp_params:
-                self.props["fAHP"] = fahp_params[1] - self.props["threshold"]
-
-            # mAHP
-            mahp_params = self._get_ahp(fahp_max_i, mahp_max_i, second_ap_trh_i)
-
-            if mahp_params:
-                self.props["mAHP"] = mahp_params[1] - self.props["threshold"]
-
             self.props["amplitude"] = abf.sweepY[peak_i] - self.props["threshold"]
 
-            self.fahp_params = fahp_params
-            self.mahp_params = mahp_params
-
-            # Half-width
-            self.half_width_left_params = self._get_half_width_params(True)
-            self.half_width_right_params = self._get_half_width_params(False)
-
+            half_amplitude_info = self._get_half_amplitude_info()
+            self.half_amplitude_left_info = half_amplitude_info["left"]
+            self.half_amplitude_right_info = half_amplitude_info["right"]
             self.props["half-width"] = (
-                (self.half_width_right_params[0] + fn.sample_to_s(peak_i, abf))
-                - (self.half_width_left_params[0] + fn.sample_to_s(prepeak_i, abf))
+                self.half_amplitude_right_info[0] - self.half_amplitude_left_info[0]
             ) * 1000
 
-            # Max rise and decay slopes
             ap_derivative = fn.get_derivative(trh_i, postpeak_i, abf)
             self.props["max_rise_slope"] = ap_derivative.max()
             self.props["max_decay_slope"] = ap_derivative.min()
+
+            # fAHP
+            fahp_info = self._get_ahp_info(peak_i, fahp_max_i, second_ap_trh_i)
+
+            if fahp_info:
+                self.props["fAHP"] = fahp_info[1] - self.props["threshold"]
+
+            # mAHP
+            mahp_info = self._get_ahp_info(fahp_max_i, mahp_max_i, second_ap_trh_i)
+
+            if mahp_info:
+                self.props["mAHP"] = mahp_info[1] - self.props["threshold"]
+
+            self.fahp_info = fahp_info
+            self.mahp_info = mahp_info
 
             return self.props
 
@@ -193,6 +190,7 @@ class FirstAP:
 
         plt.figure(**fn.FIGURE_INIT_PARAMS)
 
+        # The whole step with the analyzed AP marked.
         plt.subplot(2, 2, (1, 2))
         plt.title(RHEOBASE_TITLE % self.props["rheobase"])
         plt.plot(*fn.extend_coords(self.step_start, 0.05, self.step_end, 0.2, abf))
@@ -208,43 +206,32 @@ class FirstAP:
 
         plt.axhline(self.props["threshold"], **AP_MV_MS_THRESHOLD_LINE_STYLE)
 
+        # Only the analyzed AP up close.
         plt.subplot(223)
         plt.title(AP_UP_CLOSE_TITLE)
-        plt.plot(
-            abf.sweepX[prepeak_i:postpeak_i],
-            abf.sweepY[prepeak_i:postpeak_i],
-        )
+        plt.plot(abf.sweepX[prepeak_i:postpeak_i], abf.sweepY[prepeak_i:postpeak_i])
         plt.axhline(self.props["threshold"], **AP_MV_MS_THRESHOLD_LINE_STYLE)
         plt.scatter(
-            [
-                fn.sample_to_s(prepeak_i, abf) + self.half_width_left_params[0],
-                fn.sample_to_s(peak_i, abf) + self.half_width_right_params[0],
-            ],
-            [self.half_width_left_params[1], self.half_width_right_params[1]],
-            **AP_HALF_WIDTH_MARKER_STYLE,
+            [self.half_amplitude_left_info[0], self.half_amplitude_right_info[0]],
+            [self.half_amplitude_left_info[1], self.half_amplitude_right_info[1]],
+            **AP_HALF_AMPLITUDE_MARKER_STYLE,
         )
-        plt.axhline(self.half_width_left_params[1], **AP_HALF_WIDTH_LINE_STYLE)
+        plt.axhline(self.half_amplitude_left_info[1], **AP_HALF_AMPLITUDE_LINE_STYLE)
         plt.axhline(abf.sweepY[peak_i], **AP_PEAK_LINE_STYLE)
 
+        # The analyzed AP with part of the step after it to see AHPs.
         plt.subplot(224)
         plt.title(FAHP_MAHP_TITLE)
-        plt.plot(
-            abf.sweepX[prepeak_i:postahp_i],
-            abf.sweepY[prepeak_i:postahp_i],
-        )
+        plt.plot(abf.sweepX[prepeak_i:postahp_i], abf.sweepY[prepeak_i:postahp_i])
 
-        if self.fahp_params:
+        if self.fahp_info:
             plt.scatter(
-                abf.sweepX[peak_i + self.fahp_params[0]],
-                self.fahp_params[1],
-                **AP_FAHP_MARKER_STYLE,
+                abf.sweepX[self.fahp_info[0]], self.fahp_info[1], **AP_FAHP_MARKER_STYLE
             )
 
-        if self.mahp_params:
+        if self.mahp_info:
             plt.scatter(
-                abf.sweepX[peak_i + self.mahp_params[0]],
-                self.mahp_params[1],
-                **AP_MAHP_MARKER_STYLE,
+                abf.sweepX[self.mahp_info[0]], self.mahp_info[1], **AP_MAHP_MARKER_STYLE
             )
 
         fn.set_all_xylabels("Time (s)", "Voltage (mV)")
