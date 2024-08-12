@@ -8,7 +8,6 @@ import fn
 AP_TIME_WINDOW = 0.002
 FAHP_TIME_WINDOW = 0.005
 MAHP_TIME_WINDOW = 0.050
-HALF_AMPLITUDE_POINTS_TO_INTERPOLATE = 100
 
 RHEOBASE_TITLE = "Rheobase: %d pA. Analyzed AP is marked"
 AP_UP_CLOSE_TITLE = "Analyzed AP up close"
@@ -72,6 +71,7 @@ class FirstAP:
         abf = self.abf
         half_amplitude = self.props["amplitude"] / 2 + self.props["threshold"]
         side_voltages = abf.sweepY[start_index:end_index]
+        points_to_interpolate = int(1e6 / abf.sampleRate)
 
         # When operation is lt: Go up the left side of an AP and find the last value lower than
         # the calculated half-amplitude. When operation is gt: Go down the right side of the AP
@@ -81,13 +81,13 @@ class FirstAP:
         interp_time = np.linspace(
             fn.sample_to_s(closest_voltage_i, abf),
             fn.sample_to_s(closest_voltage_i + 1, abf),
-            HALF_AMPLITUDE_POINTS_TO_INTERPOLATE,
+            points_to_interpolate,
         )
 
         interp_voltage = np.linspace(
             side_voltages[closest_voltage_i],
             side_voltages[closest_voltage_i + 1],
-            HALF_AMPLITUDE_POINTS_TO_INTERPOLATE,
+            points_to_interpolate,
         )
 
         half_amplitude_info = fn.get_closest(interp_voltage, half_amplitude)
