@@ -4,12 +4,13 @@ import fn
 
 
 def rmp(abf, show_plot=True):
-    for sweep_no in abf.sweepList:
-        abf.setSweep(sweep_no, channel=0)
+    for sweep_i in abf.sweepList:
+        abf.setSweep(sweep_i, channel=0)
 
         if fn.get_current_step(abf) == 0:
-            abf.setSweep(sweep_no, channel=1)
+            abf.setSweep(sweep_i, channel=1)
             return np.mean(abf.sweepY)
+    return None
 
 
 if __name__ == "__main__":
