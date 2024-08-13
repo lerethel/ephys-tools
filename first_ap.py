@@ -139,10 +139,7 @@ class FirstAP:
             self.postpeak_i = postpeak_i
             self.ahp_max_i = mahp_max_i
 
-            abf.setSweep(sweep_no, channel=0)
             self.props["rheobase"] = fn.get_current_step(abf)
-            abf.setSweep(sweep_no, channel=1)
-
             self.props["latency"] = (
                 fn.sample_to_s(trh_i - self.step_start, abf) * 1000
                 if self.props["rheobase"] != 0

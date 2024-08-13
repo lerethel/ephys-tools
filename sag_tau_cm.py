@@ -56,11 +56,9 @@ class Sag:
         abf = self.abf
 
         for sweep_no in abf.sweepList:
-            abf.setSweep(sweep_no, channel=0)
+            abf.setSweep(sweep_no, channel=1)
 
             if fn.get_current_step(abf) == current_step:
-                abf.setSweep(sweep_no, channel=1)
-
                 peak_search_window = abf.sweepY[self.step_start : self.start_offset]
                 ss_window = abf.sweepY[self.end_offset : self.step_end]
 

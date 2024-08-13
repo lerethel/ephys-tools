@@ -81,11 +81,9 @@ class Firing:
         rheobase_current = None
 
         for sweep_no in abf.sweepList:
-            abf.setSweep(sweep_no, channel=0)
-            current_step = fn.get_current_step(abf)
-
             abf.setSweep(sweep_no, channel=1)
 
+            current_step = fn.get_current_step(abf)
             peak_indexes = fn.find_aps(self.step_start, self.step_end, abf)[0]
             step_info = (sweep_no, current_step, peak_indexes)
             inst_freqs = None

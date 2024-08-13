@@ -72,6 +72,24 @@ def get_step_boundaries(abf):
             return step_start, step_end
 
 
+def step_getter(get_step):
+    def wrapper(abf):
+        original_channel = abf.sweepChannel
+
+        if original_channel != 0:
+            sweep_i = abf.sweepNumber
+            abf.setSweep(sweep_i, channel=0)
+            step = get_step(abf)
+            abf.setSweep(sweep_i, channel=original_channel)
+        else:
+            step = get_step(abf)
+
+        return step
+
+    return wrapper
+
+
+@step_getter
 def get_current_step(abf):
     stimulus = abf.sweepC
     step_indexes = np.where(stimulus != abf.holdingCommand[0])[0]
@@ -82,6 +100,7 @@ def get_current_step(abf):
     )
 
 
+@step_getter
 def get_voltage_step(abf):
     stimulus = abf.sweepC
     step_indexes = np.where(stimulus != abf.holdingCommand[0])[0]
