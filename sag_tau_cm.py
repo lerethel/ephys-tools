@@ -55,8 +55,8 @@ class Sag:
     def _get_step_props(self, current_step):
         abf = self.abf
 
-        for sweep_no in abf.sweepList:
-            abf.setSweep(sweep_no, channel=1)
+        for sweep_i in abf.sweepList:
+            abf.setSweep(sweep_i, channel=fn.CURRENT_CLAMP_CHANNEL)
 
             if fn.get_current_step(abf) == current_step:
                 peak_search_window = abf.sweepY[self.step_start : self.start_offset]
@@ -69,8 +69,8 @@ class Sag:
                 ss = ss_window[ss_i]
 
                 return {
-                    # Include only the peak without the rising phase.
                     "peak_window": abf.sweepY[
+                        # Include only the peak without the rising phase.
                         self.step_start : self.step_start + peak_i + 1
                     ],
                     "ss_window": ss_window,
@@ -81,9 +81,10 @@ class Sag:
                     "ss_i": ss_i + self.end_offset,
                     "peak_from_bsl": peak - baseline,
                     "ss_from_bsl": ss - baseline,
-                    "sweep_no": sweep_no,
+                    "sweep_i": sweep_i,
                     "current_step": current_step,
                 }
+        return None
 
     def _get_best_fit_props(self, tau_props, peak_10_pct_i, peak_95_pct_i):
         abf = self.abf
@@ -178,7 +179,7 @@ class Sag:
 
         plt.figure(**fn.FIGURE_INIT_PARAMS)
 
-        abf.setSweep(tau_props["sweep_no"], channel=1)
+        abf.setSweep(tau_props["sweep_i"], channel=fn.CURRENT_CLAMP_CHANNEL)
 
         plt.subplot(221)
         plt.title(EXTRAPOLATED_RESPONSE_TITLE % tau_props["current_step"])
@@ -201,7 +202,7 @@ class Sag:
             **PERCENT_OF_PEAK_LINE_STYLE,
         )
 
-        abf.setSweep(sag_props["sweep_no"], channel=1)
+        abf.setSweep(sag_props["sweep_i"], channel=fn.CURRENT_CLAMP_CHANNEL)
 
         plt.subplot(2, 2, (3, 4))
         plt.title(SAG_TITLE % sag_props["current_step"])

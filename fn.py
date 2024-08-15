@@ -2,6 +2,10 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 
+STIMULUS_CHANNEL = 0
+CURRENT_CLAMP_CHANNEL = 1
+VOLTAGE_CLAMP_CHANNEL = 0
+
 FIGURE_INIT_PARAMS = {"figsize": (10, 6), "layout": "constrained"}
 DISTANCE_BETWEEN_MARKERS_AND_MAX_PEAK = 10
 
@@ -35,8 +39,8 @@ np.set_printoptions(legacy="1.25")
 ### COMMON METHODS ###
 
 
-def sample_to_s(sample_no, abf):
-    return sample_no / abf.sampleRate
+def sample_to_s(sample_index, abf):
+    return sample_index / abf.sampleRate
 
 
 def s_to_sample(s, abf):
@@ -50,17 +54,17 @@ def get_closest(context, target_value):
 
 def get_prepulse(step_start, abf, offset_s):
     prepulse_i = step_start - s_to_sample(offset_s, abf)
-    return prepulse_i if prepulse_i >= 0 else 0
+    return max(prepulse_i, 0)
 
 
 def get_postpulse(step_end, abf, offset_s):
     postpulse_i = step_end + s_to_sample(offset_s, abf)
-    return postpulse_i if postpulse_i < abf.sweepPointCount else abf.sweepPointCount - 1
+    return min(postpulse_i, abf.sweepPointCount - 1)
 
 
 def get_step_boundaries(abf):
-    for sweep_no in abf.sweepList:
-        abf.setSweep(sweep_no, channel=0)
+    for sweep_i in abf.sweepList:
+        abf.setSweep(sweep_i, channel=STIMULUS_CHANNEL)
 
         stimulus = abf.sweepC
         step_indexes = np.where(stimulus != abf.holdingCommand[0])[0]
@@ -70,15 +74,16 @@ def get_step_boundaries(abf):
             step_end = step_indexes[-1]
 
             return step_start, step_end
+    return None
 
 
 def step_getter(get_step):
     def wrapper(abf):
         original_channel = abf.sweepChannel
 
-        if original_channel != 0:
+        if original_channel != STIMULUS_CHANNEL:
             sweep_i = abf.sweepNumber
-            abf.setSweep(sweep_i, channel=0)
+            abf.setSweep(sweep_i, channel=STIMULUS_CHANNEL)
             step = get_step(abf)
             abf.setSweep(sweep_i, channel=original_channel)
         else:
@@ -151,7 +156,7 @@ def show_plot(abf):
         all_handles += handles
         all_labels += labels
 
-    if len(all_labels):
+    if all_labels:
         by_label = dict(zip(all_labels, all_handles))
 
         figure.legend(
@@ -183,7 +188,9 @@ class IVData:
         self.start_index = start_index
         self.end_index = end_index
         self.voltage_clamp = voltage_clamp
-        self.response_channel = 0 if voltage_clamp else 1
+        self.response_channel = (
+            VOLTAGE_CLAMP_CHANNEL if voltage_clamp else CURRENT_CLAMP_CHANNEL
+        )
 
     def _filter_signal(self, y_ms_threshold):
         abf = self.abf
@@ -217,14 +224,12 @@ class IVData:
 
     def get_stimulus(self):
         abf = self.abf
-
+        get_step = get_voltage_step if self.voltage_clamp else get_current_step
         stimulus_sweeps = []
 
-        for sweep_no in abf.sweepList:
-            abf.setSweep(sweep_no, channel=0)
-            stimulus_sweeps.append(
-                get_voltage_step(abf) if self.voltage_clamp else get_current_step(abf)
-            )
+        for sweep_i in abf.sweepList:
+            abf.setSweep(sweep_i, channel=STIMULUS_CHANNEL)
+            stimulus_sweeps.append(get_step(abf))
 
         self.stimulus = stimulus_sweeps
         return stimulus_sweeps
@@ -238,8 +243,8 @@ class IVData:
         filtered_signal_per_sweep = []
         filtered_mean_signal_per_sweep = []
 
-        for sweep_no in abf.sweepList:
-            abf.setSweep(sweep_no, self.response_channel)
+        for sweep_i in abf.sweepList:
+            abf.setSweep(sweep_i, self.response_channel)
 
             original_signal_per_sweep.append(
                 abf.sweepY[self.start_index : self.end_index]
@@ -272,18 +277,18 @@ class IVData:
 
         subplots = []
 
-        for response_type in y_data.keys():
+        for response_type, (signal, mean) in y_data.items():
             subplots.append(plt.subplot(2, 2, len(subplots) + 1))
             plt.title(IV_TRACE_TITLE % response_type.capitalize())
 
-            for sweep_no in abf.sweepList:
-                abf.setSweep(sweep_no, self.response_channel)
+            for sweep_i in abf.sweepList:
+                abf.setSweep(sweep_i, self.response_channel)
 
                 cur_y = abf.sweepY
 
                 if response_type == "filtered":
                     cur_y = np.copy(abf.sweepY)
-                    cur_y[start_index:end_index] = y_data[response_type][0][sweep_no]
+                    cur_y[start_index:end_index] = signal[sweep_i]
 
                 prepulse = get_prepulse(start_index, abf, 0.02)
                 postpulse = get_postpulse(end_index, abf, 0.02)
@@ -297,8 +302,8 @@ class IVData:
 
             subplots.append(plt.subplot(2, 2, len(subplots) + 1))
             plt.title(IV_CURVE_TITLE % response_type)
-            plt.scatter(x_data, y_data[response_type][1])
-            plt.plot(x_data, y_data[response_type][1])
+            plt.scatter(x_data, mean)
+            plt.plot(x_data, mean)
 
         return IVPlot(subplots, abf)
 
@@ -342,24 +347,21 @@ def find_aps(start_index, end_index, abf):
     events = np.split(
         mv_ms_above_trh_indexes, np.where(np.diff(mv_ms_above_trh_indexes) != 1)[0] + 1
     )
+    # This is to process the last peak since nothing goes after it.
+    events.append([len(context_derivative) - 1])
 
     peak_indexes = []
     trh_indexes = []
 
-    for i, indexes in enumerate(events):
+    for cur_indexes, next_indexes in zip(events, events[1:]):
         # Consider an event a possible AP if its mV/ms values stay superthreshold long enough.
-        if len(indexes) >= mv_ms_rise_points_to_check:
-            cur_trh_i = indexes[0]
+        if len(cur_indexes) >= mv_ms_rise_points_to_check:
+            cur_trh_i = cur_indexes[0]
+            next_trh_i = next_indexes[0]
 
             # Ignore APs that occurred outside the step.
             if cur_trh_i + start_index >= original_end_index:
                 break
-
-            try:
-                next_trh_i = events[i + 1][0]
-            except IndexError:
-                # This is to find the last peak since nothing goes after it.
-                next_trh_i = len(context_derivative) - 1
 
             # Some APs seem to have a phase where the voltage rises steeply
             # and then slowly and can even slighly fall before rising steeply again.

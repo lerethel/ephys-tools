@@ -35,36 +35,30 @@ class Firing:
 
         isis = []
         inst_freqs = []
-        prev_i = None
 
-        for cur_i in peak_indexes:
-            if prev_i:
-                cur_isi = fn.sample_to_s(cur_i, abf) - fn.sample_to_s(prev_i, abf)
-                isis.append(cur_isi * 1000)
-                inst_freqs.append(1 / cur_isi)
-            prev_i = cur_i
+        for prev_i, next_i in zip(peak_indexes, peak_indexes[1:]):
+            isi = fn.sample_to_s(next_i, abf) - fn.sample_to_s(prev_i, abf)
+            isis.append(isi * 1000)
+            inst_freqs.append(1 / isi)
 
         return isis, inst_freqs
 
     def _fill_subplot(self, subplot_index, info_index):
         abf = self.abf
         subplot = self.subplots[subplot_index]
-        sweep_no, current_step, peak_indexes = self.step_info[info_index]
+        sweep_i, current_step, peak_indexes = self.step_info[info_index]
 
         title = (RHEOBASE_STEP_TITLE if info_index == 0 else GENERAL_STEP_TITLE) % (
             current_step,
             len(peak_indexes),
         )
 
-        abf.setSweep(sweep_no, channel=1)
+        abf.setSweep(sweep_i, channel=fn.CURRENT_CLAMP_CHANNEL)
         subplot.set_title(title)
         subplot.plot(*fn.extend_coords(self.step_start, 0.02, self.step_end, 0.1, abf))
         subplot.scatter(
-            self.abf.sweepX.take(peak_indexes),
-            [
-                self.abf.sweepY.take(peak_indexes).max()
-                + fn.DISTANCE_BETWEEN_MARKERS_AND_MAX_PEAK
-            ]
+            abf.sweepX[peak_indexes],
+            [abf.sweepY[peak_indexes].max() + fn.DISTANCE_BETWEEN_MARKERS_AND_MAX_PEAK]
             * len(peak_indexes),
             **fn.AP_MARKER_STYLE,
         )
@@ -80,27 +74,29 @@ class Firing:
         props = {"current_steps": [], "AP_numbers": [], "mean_inst_freqs": []}
         rheobase_current = None
 
-        for sweep_no in abf.sweepList:
-            abf.setSweep(sweep_no, channel=1)
+        for sweep_i in abf.sweepList:
+            abf.setSweep(sweep_i, channel=fn.CURRENT_CLAMP_CHANNEL)
 
             current_step = fn.get_current_step(abf)
             peak_indexes = fn.find_aps(self.step_start, self.step_end, abf)[0]
-            step_info = (sweep_no, current_step, peak_indexes)
+            step_info = (sweep_i, current_step, peak_indexes)
             inst_freqs = None
 
-            if rheobase_current is None and len(peak_indexes):
+            if rheobase_current is None and peak_indexes:
                 rheobase_current = current_step
                 self.step_info.append(step_info)
 
-            if current_step == self.adaptation_analysis_current:
+            if (
+                current_step == self.adaptation_analysis_current
+                and len(peak_indexes) >= ADAPTATION_MIN_ISI_NUMBER + 1
+            ):
                 isis, inst_freqs = self._get_freq_props(peak_indexes)
 
-                if len(isis) >= ADAPTATION_MIN_ISI_NUMBER:
-                    props["adaptation"] = {
-                        "current_step": current_step,
-                        "ISIs": isis,
-                        "inst_freqs": inst_freqs,
-                    }
+                props["adaptation"] = {
+                    "current_step": current_step,
+                    "ISIs": isis,
+                    "inst_freqs": inst_freqs,
+                }
 
             if ANALYSIS_START_CURRENT_STEP <= current_step <= ANALYSIS_END_CURRENT_STEP:
                 if rheobase_current is not None and current_step != rheobase_current:
@@ -112,7 +108,7 @@ class Firing:
                 props["current_steps"].append(current_step)
                 props["AP_numbers"].append(len(peak_indexes))
                 props["mean_inst_freqs"].append(
-                    np.mean(inst_freqs) if len(inst_freqs) else 0
+                    np.mean(inst_freqs) if inst_freqs else 0
                 )
 
         return props

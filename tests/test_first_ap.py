@@ -3,11 +3,11 @@ from first_ap import FirstAP
 
 FIRST_AP_REFERENCE_FILE_NAME = "first_ap_reference.csv"
 
-FIRST_AP_TEST_PARAM_MAP = {
+FIRST_AP_TEST_PROPERTY_MAP = {
     "rheobase": {"from_str_to": int, "delta": 0},
     **{
-        param_name: {"from_str_to": float, "delta": 0.01}
-        for param_name in (
+        prop_name: {"from_str_to": float, "delta": 0.01}
+        for prop_name in (
             "latency",
             "threshold",
             "amplitude",
@@ -29,15 +29,13 @@ def get_test_info():
 
 def parse_ref_elem(row):
     return {
-        param_name: param_opts["from_str_to"](row[param_name])
-        for param_name, param_opts in FIRST_AP_TEST_PARAM_MAP.items()
+        prop_name: prop_opts["from_str_to"](row[prop_name])
+        for prop_name, prop_opts in FIRST_AP_TEST_PROPERTY_MAP.items()
     }
 
 
-def parse_test_elem(abf_results):
-    return {
-        param_name: abf_results[param_name] for param_name in FIRST_AP_TEST_PARAM_MAP
-    }
+def parse_test_elem(results):
+    return {prop_name: results[prop_name] for prop_name in FIRST_AP_TEST_PROPERTY_MAP}
 
 
 class TestFirstAP(t_fn.APTest):
@@ -47,5 +45,5 @@ class TestFirstAP(t_fn.APTest):
         cls.test_info = get_test_info()
 
     def test_first_ap(self):
-        for param_name, param_opts in FIRST_AP_TEST_PARAM_MAP.items():
-            self.run_through(param_name, param_opts["delta"])
+        for prop_name, prop_opts in FIRST_AP_TEST_PROPERTY_MAP.items():
+            self.check_prop(prop_name, prop_opts["delta"])

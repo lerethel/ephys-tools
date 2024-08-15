@@ -55,8 +55,7 @@ class FirstAP:
         self.step_end = step_end
 
     def _get_ahp_info(self, start_index, end_index, second_ap_trh_i):
-        if end_index >= self.step_end + 1:
-            end_index = self.step_end
+        end_index = min(end_index, self.step_end)
 
         # Check if there's an AP in the way.
         if second_ap_trh_i and end_index > second_ap_trh_i:
@@ -108,8 +107,8 @@ class FirstAP:
 
         self.props = {}
 
-        for sweep_no in abf.sweepList:
-            abf.setSweep(sweep_no, channel=1)
+        for sweep_i in abf.sweepList:
+            abf.setSweep(sweep_i, channel=fn.CURRENT_CLAMP_CHANNEL)
 
             peak_indexes, trh_indexes = fn.find_aps(self.step_start, self.step_end, abf)
 

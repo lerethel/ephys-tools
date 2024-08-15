@@ -21,10 +21,10 @@ def parse_ref_elem(row):
     }
 
 
-def parse_test_elem(abf_results):
+def parse_test_elem(results):
     return {
-        "AP_numbers": abf_results["AP_numbers"],
-        "current_steps": abf_results["current_steps"],
+        "AP_numbers": results["AP_numbers"],
+        "current_steps": results["current_steps"],
     }
 
 
@@ -67,5 +67,5 @@ class TestFiring(t_fn.APTest):
         cls.test_info = get_test_info()
 
     def test_firing(self):
-        self.run_through("AP_numbers")
-        self.run_through("current_steps")
+        self.check_prop("AP_numbers")
+        self.check_prop("current_steps")
