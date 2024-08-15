@@ -5,10 +5,10 @@ import fn
 
 def rmp(abf, show_plot=True):
     for sweep_i in abf.sweepList:
-        abf.setSweep(sweep_i, channel=0)
+        abf.setSweep(sweep_i, channel=fn.STIMULUS_CHANNEL)
 
         if fn.get_current_step(abf) == 0:
-            abf.setSweep(sweep_i, channel=1)
+            abf.setSweep(sweep_i, channel=fn.CURRENT_CLAMP_CHANNEL)
             return np.mean(abf.sweepY)
     return None
 

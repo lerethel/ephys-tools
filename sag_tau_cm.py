@@ -56,10 +56,10 @@ class Sag:
         abf = self.abf
 
         for sweep_i in abf.sweepList:
-            abf.setSweep(sweep_i, channel=0)
+            abf.setSweep(sweep_i, channel=fn.STIMULUS_CHANNEL)
 
             if fn.get_current_step(abf) == current_step:
-                abf.setSweep(sweep_i, channel=1)
+                abf.setSweep(sweep_i, channel=fn.CURRENT_CLAMP_CHANNEL)
 
                 peak_search_window = abf.sweepY[self.step_start : self.start_offset]
                 ss_window = abf.sweepY[self.end_offset : self.step_end]
@@ -181,7 +181,7 @@ class Sag:
 
         plt.figure(**fn.FIGURE_INIT_PARAMS)
 
-        abf.setSweep(tau_props["sweep_i"], channel=1)
+        abf.setSweep(tau_props["sweep_i"], channel=fn.CURRENT_CLAMP_CHANNEL)
 
         plt.subplot(221)
         plt.title(EXTRAPOLATED_RESPONSE_TITLE % tau_props["current_step"])
@@ -204,7 +204,7 @@ class Sag:
             **PERCENT_OF_PEAK_LINE_STYLE,
         )
 
-        abf.setSweep(sag_props["sweep_i"], channel=1)
+        abf.setSweep(sag_props["sweep_i"], channel=fn.CURRENT_CLAMP_CHANNEL)
 
         plt.subplot(2, 2, (3, 4))
         plt.title(SAG_TITLE % sag_props["current_step"])

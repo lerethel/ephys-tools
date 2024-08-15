@@ -53,7 +53,7 @@ class Firing:
             len(peak_indexes),
         )
 
-        abf.setSweep(sweep_i, channel=1)
+        abf.setSweep(sweep_i, channel=fn.CURRENT_CLAMP_CHANNEL)
         subplot.set_title(title)
         subplot.plot(*fn.extend_coords(self.step_start, 0.02, self.step_end, 0.1, abf))
         subplot.scatter(
@@ -75,10 +75,10 @@ class Firing:
         rheobase_current = None
 
         for sweep_i in abf.sweepList:
-            abf.setSweep(sweep_i, channel=0)
+            abf.setSweep(sweep_i, channel=fn.STIMULUS_CHANNEL)
             current_step = fn.get_current_step(abf)
 
-            abf.setSweep(sweep_i, channel=1)
+            abf.setSweep(sweep_i, channel=fn.CURRENT_CLAMP_CHANNEL)
 
             peak_indexes = fn.find_aps(self.step_start, self.step_end, abf)[0]
             step_info = (sweep_i, current_step, peak_indexes)

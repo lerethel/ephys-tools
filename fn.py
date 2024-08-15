@@ -2,6 +2,10 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 
+STIMULUS_CHANNEL = 0
+CURRENT_CLAMP_CHANNEL = 1
+VOLTAGE_CLAMP_CHANNEL = 0
+
 FIGURE_INIT_PARAMS = {"figsize": (10, 6), "layout": "constrained"}
 DISTANCE_BETWEEN_MARKERS_AND_MAX_PEAK = 10
 
@@ -60,7 +64,7 @@ def get_postpulse(step_end, abf, offset_s):
 
 def get_step_boundaries(abf):
     for sweep_i in abf.sweepList:
-        abf.setSweep(sweep_i, channel=0)
+        abf.setSweep(sweep_i, channel=STIMULUS_CHANNEL)
 
         stimulus = abf.sweepC
         step_indexes = np.where(stimulus != abf.holdingCommand[0])[0]
@@ -165,7 +169,9 @@ class IVData:
         self.start_index = start_index
         self.end_index = end_index
         self.voltage_clamp = voltage_clamp
-        self.response_channel = 0 if voltage_clamp else 1
+        self.response_channel = (
+            VOLTAGE_CLAMP_CHANNEL if voltage_clamp else CURRENT_CLAMP_CHANNEL
+        )
 
     def _filter_signal(self, y_ms_threshold):
         abf = self.abf
@@ -203,7 +209,7 @@ class IVData:
         stimulus_sweeps = []
 
         for sweep_i in abf.sweepList:
-            abf.setSweep(sweep_i, channel=0)
+            abf.setSweep(sweep_i, channel=STIMULUS_CHANNEL)
             stimulus_sweeps.append(get_step(abf))
 
         self.stimulus = stimulus_sweeps

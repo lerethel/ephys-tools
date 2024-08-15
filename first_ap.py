@@ -108,7 +108,7 @@ class FirstAP:
         self.props = {}
 
         for sweep_i in abf.sweepList:
-            abf.setSweep(sweep_i, channel=1)
+            abf.setSweep(sweep_i, channel=fn.CURRENT_CLAMP_CHANNEL)
 
             peak_indexes, trh_indexes = fn.find_aps(self.step_start, self.step_end, abf)
 
@@ -138,9 +138,9 @@ class FirstAP:
             self.postpeak_i = postpeak_i
             self.ahp_max_i = mahp_max_i
 
-            abf.setSweep(sweep_i, channel=0)
+            abf.setSweep(sweep_i, channel=fn.STIMULUS_CHANNEL)
             self.props["rheobase"] = fn.get_current_step(abf)
-            abf.setSweep(sweep_i, channel=1)
+            abf.setSweep(sweep_i, channel=fn.CURRENT_CLAMP_CHANNEL)
 
             self.props["latency"] = (
                 fn.sample_to_s(trh_i - self.step_start, abf) * 1000
