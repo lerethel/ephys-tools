@@ -1,7 +1,4 @@
-import operator as op
-
 import matplotlib.pyplot as plt
-import numpy as np
 
 import fn
 
@@ -66,39 +63,18 @@ class FirstAP:
 
         return ahp_index + start_index, ahp_context[ahp_index]
 
-    def _interpolate_side(self, start_index, end_index, operation):
+    def _interpolate_side(self, start_index, end_index):
         abf = self.abf
-        half_amplitude = self.props["amplitude"] / 2 + self.props["threshold"]
-        side_voltages = abf.sweepY[start_index:end_index]
-        points_to_interpolate = int(1e6 / abf.sampleRate)
 
-        # When operation is lt: Go up the left side of an AP and find the last value lower than
-        # the calculated half-amplitude. When operation is gt: Go down the right side of the AP
-        # and find the last value higher than the calculated half-amplitude.
-        closest_voltage_i = np.where(operation(side_voltages, half_amplitude))[0][-1]
-
-        interp_time = np.linspace(
-            fn.sample_to_s(closest_voltage_i, abf),
-            fn.sample_to_s(closest_voltage_i + 1, abf),
-            points_to_interpolate,
-        )
-
-        interp_voltage = np.linspace(
-            side_voltages[closest_voltage_i],
-            side_voltages[closest_voltage_i + 1],
-            points_to_interpolate,
-        )
-
-        half_amplitude_info = fn.get_closest(interp_voltage, half_amplitude)
-
-        return (
-            interp_time[half_amplitude_info[0]] + fn.sample_to_s(start_index, abf),
-            half_amplitude_info[1],
+        return fn.get_interp(
+            abf.sweepX[start_index:end_index],
+            abf.sweepY[start_index:end_index],
+            self.props["amplitude"] / 2 + self.props["threshold"],
         )
 
     def _get_half_amplitude_info(self):
-        left_side_info = self._interpolate_side(self.trh_i, self.peak_i, op.lt)
-        right_side_info = self._interpolate_side(self.peak_i, self.postpeak_i, op.gt)
+        left_side_info = self._interpolate_side(self.trh_i, self.peak_i)
+        right_side_info = self._interpolate_side(self.peak_i, self.postpeak_i)
 
         return {"left": left_side_info, "right": right_side_info}
 

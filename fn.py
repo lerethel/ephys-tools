@@ -1,3 +1,5 @@
+import operator
+
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
@@ -121,6 +123,26 @@ def get_derivative(start_index, end_index, abf):
     dy_dt = np.insert(dy_dt, 0, [dy_dt[0]])
     dy_dt *= abf.sampleRate / 1000
     return dy_dt
+
+
+def get_interp(x_data, y_data, y_target):
+    operation = operator.ge if y_data[0] < y_data[-1] else operator.le
+    close_i = next(i for i, val in enumerate(y_data) if operation(val, y_target))
+
+    x_cur = x_data[close_i]
+    y_cur = y_data[close_i]
+    x_prev = x_data[close_i - 1]
+    y_prev = y_data[close_i - 1]
+
+    if y_cur == y_target:
+        return x_cur, y_cur
+
+    precision = int(abs(max(y_cur, y_prev) - min(y_cur, y_prev)) * 10)
+    linsp_x = np.linspace(x_prev, x_cur, precision, False)
+    linsp_y = np.linspace(y_prev, y_cur, precision, False)
+    interp_y = get_closest(linsp_y, y_target)
+
+    return linsp_x[interp_y[0]], interp_y[1]
 
 
 ########################################
