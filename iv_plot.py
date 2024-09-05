@@ -10,7 +10,7 @@ def iv_plot(abf, show_plot=True):
     iv_data = fn.IVData(step_end - end_offset, step_end, True, abf)
 
     voltage_steps = iv_data.get_stimulus()
-    current_response = iv_data.get_response(100)
+    current_response = iv_data.get_response(100)["filtered"][1]
 
     if show_plot:
         iv_plot = iv_data.plot()
@@ -18,7 +18,11 @@ def iv_plot(abf, show_plot=True):
         iv_plot.set_labels("Time (s)", "Current (pA)", "Voltage (mV)", "Current (pA)")
         iv_plot.show()
 
-    return {"voltage": voltage_steps, "current": current_response["filtered"][1]}
+    return {
+        "voltage": voltage_steps,
+        "current": current_response,
+        "e_rev": fn.get_interp(voltage_steps, current_response, 0)[0],
+    }
 
 
 if __name__ == "__main__":
