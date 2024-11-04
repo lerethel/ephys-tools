@@ -9,4 +9,4 @@ The package includes scripts
 - to calculate the membrane resistance using linear regression
 - to calculate the resting membrane potential from a 0-pA current step
 - to calculate the sag ratio from a hyperpolarizing current step
-- to calculate the time constant according to [Tamagnini et al., 2015](https://pubmed.ncbi.nlm.nih.gov/25515596/)
+- to calculate the membrane capacitance and time constant according to [Tamagnini et al., 2015](https://pubmed.ncbi.nlm.nih.gov/25515596/)
